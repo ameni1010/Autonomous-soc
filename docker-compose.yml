@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  client:
+    build: ./containers/client
+    container_name: soc-client
+    networks:
+      - soc-network
+    depends_on:
+      - auth-server
+    stdin_open: true
+    tty: true
+
+  auth-server:
+    build: ./containers/auth-server
+    container_name: soc-auth
+    ports:
+      - "2222:22"
+    networks:
+      - soc-network
+    volumes:
+      - ./logs:/logs
+
+  log-collector:
+    build: ./containers/log-collector
+    container_name: soc-logs
+    ports:
+      - "5000:5000"
+    networks:
+      - soc-network
+    volumes:
+      - ./logs:/logs
+
+  detection-engine:
+    build: ./containers/detection-engine
+    container_name: soc-detection
+    ports:
+      - "5001:5001"
+    networks:
+      - soc-network
+    depends_on:
+      - log-collector
+    volumes:
+      - ./logs:/logs
+
+  ai-agents:
+    build: ./containers/ai-agents
+    container_name: soc-agents
+    ports:
+      - "5002:5002"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    networks:
+      - soc-network
+
+  response-engine:
+    build: ./containers/response-engine
+    container_name: soc-response
+    ports:
+      - "5003:5003"
+    networks:
+      - soc-network
+    privileged: true
+    volumes:
+      - ./logs:/logs
+
+  dashboard:
+    build: ./containers/dashboard
+    container_name: soc-dashboard
+    ports:
+      - "8080:80"
+    networks:
+      - soc-network
+    volumes:
+      - ./logs:/logs
+
+  n8n:
+    image: n8nio/n8n
+    container_name: soc-n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=admin123
+    networks:
+      - soc-network
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+networks:
+  soc-network:
+    driver: bridge
+
+volumes:
+  n8n_data:
