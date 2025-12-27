@@ -1,66 +1,46 @@
 #!/bin/bash
 
-# Create auth log file
-touch /var/log/auth.log
-chmod 644 /var/log/auth.log
+LOG_COLLECTOR="http://soc-logs:5000/ingest"
 
-# Start rsyslog to capture SSH logs
-echo "Starting rsyslog..."
-rsyslogd
-
-# Configure SSH to log everything
-echo "Starting SSH server..."
-/usr/sbin/sshd -D -e &
-SSHD_PID=$!
-
-# Wait for SSH to start
-sleep 2
-
-# Function to monitor SSH directly from its process output
-monitor_ssh_logs() {
-    LOG_COLLECTOR="http://soc-logs:5000/ingest"
+# Function to send logs (only called when new auth event happens)
+send_log() {
+    local event=$1
+    local user=$2
+    local ip=$3
     
-    # Monitor btmp for failed logins (binary format)
-    while true; do
-        # Use lastb to read failed login attempts from btmp
-        lastb -F -i -w | tail -n 50 | while read -r line; do
-            # Skip header line
-            if echo "$line" | grep -q "begins"; then
-                continue
-            fi
-            
-            # Parse lastb output: username tty source timestamp
-            USER=$(echo "$line" | awk '{print $1}')
-            IP=$(echo "$line" | awk '{print $3}')
-            
-            # Skip empty or header lines
-            if [ -z "$USER" ] || [ "$USER" = "btmp" ] || [ "$USER" = "wtmp" ]; then
-                continue
-            fi
-            
-            # Send to log collector
-            if [ ! -z "$IP" ] && [ "$IP" != "0.0.0.0" ]; then
-                echo "[AUTH] Failed login detected: $USER from $IP"
-                curl -s -X POST "$LOG_COLLECTOR" \
-                  -H "Content-Type: application/json" \
-                  -d "{
-                    \"timestamp\": \"$(date -Iseconds)\",
-                    \"source\": \"auth-server\",
-                    \"event\": \"login_failed\",
-                    \"user\": \"$USER\",
-                    \"ip\": \"$IP\"
-                  }" &
-            fi
-        done
-        
-        sleep 2
-    done
+    curl -s -X POST "$LOG_COLLECTOR" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"timestamp\": \"$(date -Iseconds)\",
+        \"source\": \"auth-server\",
+        \"event\": \"$event\",
+        \"user\": \"$user\",
+        \"ip\": \"$ip\"
+      }" &
 }
 
-# Start monitoring in background
-monitor_ssh_logs &
+echo "Starting SSH with inline logging..."
 
-echo "Auth server ready - monitoring btmp for failed logins"
-
-# Keep container running
-wait $SSHD_PID
+# Start SSH and parse logs inline (single process)
+/usr/sbin/sshd -D -e 2>&1 | while IFS= read -r line; do
+    
+    # Only log actual auth events (not every line)
+    if echo "$line" | grep -qi "Failed password"; then
+        USER=$(echo "$line" | grep -oE "for [^ ]+ " | awk '{print $2}' | head -1)
+        IP=$(echo "$line" | grep -oE "from [0-9.]+ " | awk '{print $2}' | head -1)
+        
+        if [ ! -z "$IP" ]; then
+            echo "[AUTH] Failed: $USER@$IP"
+            send_log "login_failed" "$USER" "$IP"
+        fi
+        
+    elif echo "$line" | grep -qi "Accepted password"; then
+        USER=$(echo "$line" | grep -oE "for [^ ]+ " | awk '{print $2}' | head -1)
+        IP=$(echo "$line" | grep -oE "from [0-9.]+ " | awk '{print $2}' | head -1)
+        
+        if [ ! -z "$IP" ]; then
+            echo "[AUTH] Success: $USER@$IP"
+            send_log "login_success" "$USER" "$IP"
+        fi
+    fi
+done

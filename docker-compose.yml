@@ -52,7 +52,8 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     networks:
       - soc-network
-
+    volumes:
+      - ./logs:/logs 
   response-engine:
     build: ./containers/response-engine
     container_name: soc-response
