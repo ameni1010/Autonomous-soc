@@ -37,7 +37,7 @@ def triage_agent():
         alert_type = alert.get('alert_type', '')
         confidence = alert.get('confidence', 0.5)
         
-        if 'Brute' in alert_type or confidence > 0.85:
+        if 'Brute' in alert_type.lower() or confidence > 0.85:
             severity = "high"
             status = "valid_alert"
             reason = "Multiple failed authentication attempts detected from single source, indicating potential brute force attack pattern."
@@ -97,7 +97,7 @@ def investigation_agent():
         
         alert_type = alert.get('alert_type', '')
         
-        if 'Brute' in alert_type:
+        if 'Brute' in alert_type.lower():
             attack_type = "Credential Stuffing / Brute Force Attack"
             attack_chain = [
                 "Initial reconnaissance and target identification",
@@ -111,7 +111,7 @@ def investigation_agent():
                 "Rapid sequential authentication attempts"
             ]
             confidence = 0.92
-        elif 'Credential' in alert_type:
+        elif 'Credential' in alert_type.lower():
             attack_type = "Credential Compromise"
             attack_chain = [
                 "Previous failed authentication attempts",
